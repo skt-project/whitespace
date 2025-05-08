@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import { GoogleMap, LoadScript, Marker } from '@react-google-maps/api';
+import Select from 'react-select';
 
-const GOOGLE_MAPS_API_KEY = 'AIzaSyBD-xnQ_jtYDhkOzVbkYtWH1LHT5EBHoOw'; // Replace this with your actual API key
+const GOOGLE_MAPS_API_KEY = 'AIzaSyBD-xnQ_jtYDhkOzVbkYtWH1LHT5EBHoOw'; // Replace with your actual key
 
 const LocationButton = () => {
   const [storeData, setStoreData] = useState([]);
@@ -10,9 +12,11 @@ const LocationButton = () => {
   const [spvs, setSpvs] = useState([]);
   const [selectedRegion, setSelectedRegion] = useState('');
   const [selectedDistributor, setSelectedDistributor] = useState('');
-  const [selectedSPV, setSelectedSPV] = useState('');
+  const [selectedSPV, setSelectedSPV] = useState(null);
   const [filteredStores, setFilteredStores] = useState([]);
   const [selectedStore, setSelectedStore] = useState(null);
+  const [position, setPosition] = useState(null);
+  const [addressInfo, setAddressInfo] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
@@ -21,14 +25,10 @@ const LocationButton = () => {
       try {
         const res = await axios.get('https://whitespace-project.onrender.com/api/store-data');
         setStoreData(res.data);
-        
-        const uniqueRegions = [...new Set(res.data.map(row => row.region))];
-        setRegions(uniqueRegions);
-        
-        const uniqueDistributors = [...new Set(res.data.map(row => row.distributor))];
-        setDistributors(uniqueDistributors);
-        
-        const uniqueSpvs = [...new Set(res.data.map(row => row.spv))];
+
+        const uniqueSpvs = [...new Set(res.data.map(row => row.spv))]
+          .filter(spv => spv) // Filter out null/undefined values
+          .map(spv => ({ value: spv, label: spv }));
         setSpvs(uniqueSpvs);
       } catch (error) {
         console.error("Error fetching store data:", error);
@@ -36,58 +36,126 @@ const LocationButton = () => {
         setIsLoading(false);
       }
     };
-    
+
     fetchData();
   }, []);
 
-  const handleSPVChange = (spv) => {
-    setSelectedSPV(spv);
+  useEffect(() => {
+    if (isLoading) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+  }, [isLoading]);
+
+  const handleSPVChange = (selectedOption) => {
+    setSelectedSPV(selectedOption);
     setSelectedRegion('');
     setSelectedDistributor('');
     setSelectedStore(null);
+    setPosition(null);
+    setAddressInfo(null);
 
-    const filteredBySPV = storeData.filter(row => row.spv === spv);
+    const spvValue = selectedOption?.value;
+    if (!spvValue) return;
+
+    const filteredBySPV = storeData.filter(row => row.spv === spvValue);
     const uniqueRegions = [...new Set(filteredBySPV.map(row => row.region))];
-    setRegions(uniqueRegions);
-
     const uniqueDistributors = [...new Set(filteredBySPV.map(row => row.distributor))];
-    setDistributors(uniqueDistributors);
+    const storeOptions = filteredBySPV.map(store => ({
+      value: store.store_id,
+      label: `${store.store_id} - ${store.store_name}`,
+      ...store
+    }));
 
-    filterStores('', '', spv);
+    // Autofill Region and Distributor if only one value is available
+    if (uniqueRegions.length === 1) {
+      setRegions(uniqueRegions);
+      setSelectedRegion(uniqueRegions[0]);
+    } else {
+      setRegions(uniqueRegions);
+    }
+
+    if (uniqueDistributors.length === 1) {
+      setDistributors(uniqueDistributors);
+      setSelectedDistributor(uniqueDistributors[0]);
+    } else {
+      setDistributors(uniqueDistributors);
+    }
+
+    if (storeOptions.length === 1) {
+      setFilteredStores(storeOptions);
+      setSelectedStore(storeOptions[0]);
+      setPosition({
+        lat: storeOptions[0].latitude,
+        lng: storeOptions[0].longitude
+      });
+      reverseGeocode(storeOptions[0].latitude, storeOptions[0].longitude).then(setAddressInfo);
+    } else {
+      setFilteredStores(storeOptions);
+    }
   };
 
-  const handleRegionChange = (region) => {
+  const handleRegionChange = (e) => {
+    const region = e.target.value;
     setSelectedRegion(region);
     setSelectedDistributor('');
     setSelectedStore(null);
-    
-    const filteredByRegion = storeData.filter(row => 
-      row.spv === selectedSPV && row.region === region
+    setPosition(null);
+    setAddressInfo(null);
+
+    const filteredByRegion = storeData.filter(row =>
+      row.spv === selectedSPV?.value && row.region === region
     );
     const uniqueDistributors = [...new Set(filteredByRegion.map(row => row.distributor))];
     setDistributors(uniqueDistributors);
-    
-    filterStores(region, '', selectedSPV);
+
+    filterStores(region, '', selectedSPV?.value);
   };
 
-  const handleDistributorChange = (distributor) => {
+  const handleDistributorChange = (e) => {
+    const distributor = e.target.value;
     setSelectedDistributor(distributor);
     setSelectedStore(null);
-    filterStores(selectedRegion, distributor, selectedSPV);
+    setPosition(null);
+    setAddressInfo(null);
+
+    filterStores(selectedRegion, distributor, selectedSPV?.value);
   };
 
   const filterStores = (region, distributor, spv) => {
-    const filtered = storeData.filter(row => 
+    const filtered = storeData.filter(row =>
       (spv ? row.spv === spv : true) &&
-      (region ? row.region === region : true) && 
+      (region ? row.region === region : true) &&
       (distributor ? row.distributor === distributor : true)
-    );
+    ).map(store => ({
+      value: store.store_id,
+      label: `${store.store_id} - ${store.store_name}`,
+      ...store
+    }));
     setFilteredStores(filtered);
   };
 
-  const handleStoreChange = (storeId) => {
-    const store = filteredStores.find(s => s.store_id === storeId);
+  const handleStoreChange = (selectedOption) => {
+    const store = selectedOption;
     setSelectedStore(store);
+
+    if ('geolocation' in navigator) {
+      navigator.geolocation.getCurrentPosition(async (pos) => {
+        const coords = {
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude
+        };
+        setPosition(coords);
+        const info = await reverseGeocode(coords.lat, coords.lng);
+        setAddressInfo(info);
+      }, (err) => {
+        console.error('Geolocation error:', err);
+        alert('Failed to retrieve your location.');
+      });
+    } else {
+      alert('Geolocation is not supported by this browser.');
+    }
   };
 
   const reverseGeocode = async (lat, lng) => {
@@ -118,37 +186,25 @@ const LocationButton = () => {
       };
     } catch (err) {
       console.error("Reverse geocoding failed:", err);
-      throw err;
+      return {};
     }
   };
 
   const sendLocation = async () => {
-    if (!selectedStore) return alert('Please select a store first');
-    if (!('geolocation' in navigator)) return alert('Geolocation is not supported');
+    if (!selectedStore || !position || !addressInfo) {
+      return alert('Missing location or address information.');
+    }
 
     setIsLoading(true);
-
     try {
-      const position = await new Promise((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(resolve, (error) => {
-          console.error('Geolocation error:', error);
-          reject(error);
-        });
-      });
-
-      const lat = position.coords.latitude;
-      const lng = position.coords.longitude;
-
-      const addressInfo = await reverseGeocode(lat, lng);
-
       const payload = {
         store_id: selectedStore.store_id,
         store_name: selectedStore.store_name,
         distributor: selectedDistributor,
         region: selectedRegion,
-        spv: selectedSPV,
-        longitude: lng,
-        latitude: lat,
+        spv: selectedSPV.value,
+        longitude: position.lng,
+        latitude: position.lat,
         calendar_date: new Date().toISOString().split('T')[0],
         address: addressInfo.address,
         subdistrict: addressInfo.subdistrict,
@@ -162,43 +218,50 @@ const LocationButton = () => {
       alert('Location sent successfully!');
     } catch (error) {
       console.error("Error sending location:", error);
-      alert(error.message.includes('denied') ? 
-        'Location access was denied' : 
-        'Failed to send location');
+      alert('Failed to send location.');
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="p-6 bg-white rounded-xl shadow-lg space-y-4 w-full max-w-md transition-all duration-300 hover:shadow-xl">
-      <h2 className="text-2xl font-bold text-gray-800 mb-2 text-center">Send My Location</h2>
-      
-      <div className="space-y-4">
-        {/* SPV Dropdown */}
-        <div className="transition-all duration-300 transform hover:scale-[1.01]">
-          <label className="block text-sm font-medium text-gray-700 mb-1">SPV</label>
-          <select 
-            value={selectedSPV} 
-            onChange={(e) => handleSPVChange(e.target.value)} 
-            className="w-full p-3 border border-gray-300 rounded-lg"
-            disabled={isLoading}
-          >
-            <option value="">Select SPV</option>
-            {spvs.map(spv => (
-              <option key={spv} value={spv}>{spv}</option>
-            ))}
-          </select>
+    <div className="p-6 bg-white rounded-xl shadow-lg space-y-4 w-full max-w-md">
+      {/* Loading Screen Overlay */}
+      {isLoading && (
+        <div className="fixed inset-0 z-50 bg-white bg-opacity-80 flex items-center justify-center">
+          <div className="text-center space-y-4">
+            <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto" />
+            <p className="text-lg font-medium text-gray-700">Loading, please wait...</p>
+          </div>
+        </div>
+      )}
+
+      <h2 className="text-2xl font-bold text-center">Send My Location</h2>
+
+      {/* Dropdowns */}
+      <div className="space-y-3">
+        {/* SPV - Now using react-select */}
+        <div>
+          <label className="block text-sm font-medium mb-1">SPV</label>
+          <Select
+            options={spvs}
+            value={selectedSPV}
+            onChange={handleSPVChange}
+            placeholder="Select SPV"
+            isSearchable
+            className="react-select-container"
+            classNamePrefix="react-select"
+          />
         </div>
 
-        {/* Region Dropdown */}
+        {/* Region - Keeping as native select */}
         <div className={`${selectedSPV ? '' : 'opacity-50 pointer-events-none'}`}>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Region</label>
+          <label className="block text-sm font-medium mb-1">Region</label>
           <select 
             value={selectedRegion} 
-            onChange={(e) => handleRegionChange(e.target.value)}
-            className="w-full p-3 border border-gray-300 rounded-lg"
-            disabled={!selectedSPV || isLoading}
+            onChange={handleRegionChange} 
+            className="w-full p-2 border rounded"
+            disabled={!selectedSPV}
           >
             <option value="">Select Region</option>
             {regions.map(region => (
@@ -207,62 +270,99 @@ const LocationButton = () => {
           </select>
         </div>
 
-        {/* Distributor Dropdown */}
+        {/* Distributor - Keeping as native select */}
         <div className={`${selectedRegion ? '' : 'opacity-50 pointer-events-none'}`}>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Distributor</label>
+          <label className="block text-sm font-medium mb-1">Distributor</label>
           <select 
             value={selectedDistributor} 
-            onChange={(e) => handleDistributorChange(e.target.value)} 
-            className="w-full p-3 border border-gray-300 rounded-lg"
-            disabled={!selectedRegion || isLoading}
+            onChange={handleDistributorChange} 
+            className="w-full p-2 border rounded"
+            disabled={!selectedRegion}
           >
             <option value="">Select Distributor</option>
-            {distributors.map(distributor => (
-              <option key={distributor} value={distributor}>{distributor}</option>
+            {distributors.map(d => (
+              <option key={d} value={d}>{d}</option>
             ))}
           </select>
         </div>
 
-        {/* Store Dropdown */}
+        {/* Store - Now using react-select */}
         <div className={`${selectedDistributor ? '' : 'opacity-50 pointer-events-none'}`}>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Store</label>
-          <select 
-            value={selectedStore?.store_id || ''} 
-            onChange={(e) => handleStoreChange(e.target.value)} 
-            className="w-full p-3 border border-gray-300 rounded-lg"
-            disabled={!selectedDistributor || isLoading}
-          >
-            <option value="">Select Store</option>
-            {filteredStores.map(s => (
-              <option key={s.store_id} value={s.store_id}>
-                {`${s.store_id} - ${s.store_name}`}
-              </option>
-            ))}
-          </select>
+          <label className="block text-sm font-medium mb-1">Store</label>
+          <Select
+            options={filteredStores}
+            value={selectedStore}
+            onChange={handleStoreChange}
+            placeholder="Select Store"
+            isSearchable
+            className="react-select-container"
+            classNamePrefix="react-select"
+            isDisabled={!selectedDistributor}
+          />
         </div>
       </div>
 
-      <button 
-        onClick={sendLocation} 
-        disabled={!selectedStore || isLoading}
-        className={`w-full p-3 rounded-lg font-medium transition-all duration-300 ${
-          selectedStore ? 
-            'bg-blue-600 hover:bg-blue-700 text-white' : 
-            'bg-gray-200 text-gray-500 cursor-not-allowed'
-        } ${isLoading ? 'opacity-70' : ''}`}
+      {/* Map */}
+      {selectedStore && position && (
+        <div className="w-full h-64 rounded-lg overflow-hidden shadow mt-4">
+          <LoadScript googleMapsApiKey={GOOGLE_MAPS_API_KEY}>
+            <GoogleMap
+              center={position}
+              zoom={17}
+              mapContainerStyle={{ width: '100%', height: '100%' }}
+              onClick={(e) => {
+                const newPos = {
+                  lat: e.latLng.lat(),
+                  lng: e.latLng.lng()
+                };
+                setPosition(newPos);
+                reverseGeocode(newPos.lat, newPos.lng).then(setAddressInfo);
+              }}
+            >
+              <Marker
+                key={`${position.lat}-${position.lng}`}
+                position={position}
+                draggable
+                onDragEnd={(e) => {
+                  const newPos = {
+                    lat: e.latLng.lat(),
+                    lng: e.latLng.lng()
+                  };
+                  setPosition(newPos);
+                  reverseGeocode(newPos.lat, newPos.lng).then(setAddressInfo);
+                }}
+              />
+            </GoogleMap>
+          </LoadScript>
+        </div>
+      )}
+
+      {/* Address Preview */}
+      {addressInfo && (
+        <div className="bg-gray-50 p-3 rounded text-sm shadow">
+          <p><strong>Address:</strong> {addressInfo.address}</p>
+          <p><strong>Subdistrict:</strong> {addressInfo.subdistrict}</p>
+          <p><strong>District:</strong> {addressInfo.district}</p>
+          <p><strong>City:</strong> {addressInfo.city}</p>
+          <p><strong>Province:</strong> {addressInfo.province}</p>
+          <p><strong>Postcode:</strong> {addressInfo.postcode}</p>
+        </div>
+      )}
+
+      {/* Send Button */}
+      <button
+        onClick={sendLocation}
+        disabled={!selectedStore || !position || !addressInfo || isLoading}
+        className={`w-full p-3 rounded font-semibold transition ${
+          selectedStore && position && addressInfo && !isLoading
+            ? 'bg-blue-600 text-white hover:bg-blue-700'
+            : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+        }`}
       >
-        {isLoading ? (
-          <span className="flex items-center justify-center">
-            <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-            Sending...
-          </span>
-        ) : 'Send Location'}
+        {isLoading ? 'Loading...' : 'Send Location'}
       </button>
     </div>
   );
 };
 
-export default LocationButton;
+export default LocationButton;  
