@@ -18,6 +18,8 @@ const LocationButton = () => {
   const [position, setPosition] = useState(null);
   const [addressInfo, setAddressInfo] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isMapFullscreen, setIsMapFullscreen] = useState(false);
+  const [locationSent, setLocationSent] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -27,7 +29,7 @@ const LocationButton = () => {
         setStoreData(res.data);
 
         const uniqueSpvs = [...new Set(res.data.map(row => row.spv))]
-          .filter(spv => spv) // Filter out null/undefined values
+          .filter(spv => spv)
           .map(spv => ({ value: spv, label: spv }));
         setSpvs(uniqueSpvs);
       } catch (error) {
@@ -41,12 +43,8 @@ const LocationButton = () => {
   }, []);
 
   useEffect(() => {
-    if (isLoading) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
-  }, [isLoading]);
+    document.body.style.overflow = isLoading || isMapFullscreen ? 'hidden' : '';
+  }, [isLoading, isMapFullscreen]);
 
   const handleSPVChange = (selectedOption) => {
     setSelectedSPV(selectedOption);
@@ -68,20 +66,11 @@ const LocationButton = () => {
       ...store
     }));
 
-    // Autofill Region and Distributor if only one value is available
-    if (uniqueRegions.length === 1) {
-      setRegions(uniqueRegions);
-      setSelectedRegion(uniqueRegions[0]);
-    } else {
-      setRegions(uniqueRegions);
-    }
+    setRegions(uniqueRegions);
+    setDistributors(uniqueDistributors);
 
-    if (uniqueDistributors.length === 1) {
-      setDistributors(uniqueDistributors);
-      setSelectedDistributor(uniqueDistributors[0]);
-    } else {
-      setDistributors(uniqueDistributors);
-    }
+    if (uniqueRegions.length === 1) setSelectedRegion(uniqueRegions[0]);
+    if (uniqueDistributors.length === 1) setSelectedDistributor(uniqueDistributors[0]);
 
     if (storeOptions.length === 1) {
       setFilteredStores(storeOptions);
@@ -215,7 +204,10 @@ const LocationButton = () => {
       };
 
       await axios.post('https://whitespace-project.onrender.com/api/location', payload);
-      alert('Location sent successfully!');
+      setLocationSent(true);
+      setTimeout(() => {
+        window.location.reload(); // Refresh the page
+      }, 2000);
     } catch (error) {
       console.error("Error sending location:", error);
       alert('Failed to send location.');
@@ -225,8 +217,8 @@ const LocationButton = () => {
   };
 
   return (
-    <div className="p-6 bg-white rounded-xl shadow-lg space-y-4 w-full max-w-md">
-      {/* Loading Screen Overlay */}
+    <div className="p-6 bg-white rounded-xl shadow-lg space-y-4 w-full max-w-md relative z-10">
+      {/* Loading Overlay */}
       {isLoading && (
         <div className="fixed inset-0 z-50 bg-white bg-opacity-80 flex items-center justify-center">
           <div className="text-center space-y-4">
@@ -236,94 +228,80 @@ const LocationButton = () => {
         </div>
       )}
 
-      <h2 className="text-2xl font-bold text-center">Send My Location</h2>
+      {/* Hide form when in fullscreen */}
+      {!isMapFullscreen && (
+        <>
+          <h2 className="text-2xl font-semibold text-center">Store Coordinates Collection</h2>
 
-      {/* Dropdowns */}
-      <div className="space-y-3">
-        {/* SPV - Now using react-select */}
-        <div>
-          <label className="block text-sm font-medium mb-1">SPV</label>
-          <Select
-            options={spvs}
-            value={selectedSPV}
-            onChange={handleSPVChange}
-            placeholder="Select SPV"
-            isSearchable
-            className="react-select-container"
-            classNamePrefix="react-select"
-          />
-        </div>
+          <div className="space-y-3">
+            <div>
+              <label className="block text-sm font-medium mb-1">SPV</label>
+              <Select
+                options={spvs}
+                value={selectedSPV}
+                onChange={handleSPVChange}
+                placeholder="Select SPV"
+                isSearchable
+                classNamePrefix="react-select"
+              />
+            </div>
 
-        {/* Region - Keeping as native select */}
-        <div className={`${selectedSPV ? '' : 'opacity-50 pointer-events-none'}`}>
-          <label className="block text-sm font-medium mb-1">Region</label>
-          <select 
-            value={selectedRegion} 
-            onChange={handleRegionChange} 
-            className="w-full p-2 border rounded"
-            disabled={!selectedSPV}
-          >
-            <option value="">Select Region</option>
-            {regions.map(region => (
-              <option key={region} value={region}>{region}</option>
-            ))}
-          </select>
-        </div>
+            <div className={`${selectedSPV ? '' : 'opacity-50 pointer-events-none'}`}>
+              <label className="block text-sm font-medium mb-1">Region</label>
+              <select
+                value={selectedRegion}
+                onChange={handleRegionChange}
+                className="w-full p-2 border rounded"
+                disabled={!selectedSPV}
+              >
+                <option value="">Select Region</option>
+                {regions.map(region => (
+                  <option key={region} value={region}>{region}</option>
+                ))}
+              </select>
+            </div>
 
-        {/* Distributor - Keeping as native select */}
-        <div className={`${selectedRegion ? '' : 'opacity-50 pointer-events-none'}`}>
-          <label className="block text-sm font-medium mb-1">Distributor</label>
-          <select 
-            value={selectedDistributor} 
-            onChange={handleDistributorChange} 
-            className="w-full p-2 border rounded"
-            disabled={!selectedRegion}
-          >
-            <option value="">Select Distributor</option>
-            {distributors.map(d => (
-              <option key={d} value={d}>{d}</option>
-            ))}
-          </select>
-        </div>
+            <div className={`${selectedRegion ? '' : 'opacity-50 pointer-events-none'}`}>
+              <label className="block text-sm font-medium mb-1">Distributor</label>
+              <select
+                value={selectedDistributor}
+                onChange={handleDistributorChange}
+                className="w-full p-2 border rounded"
+                disabled={!selectedRegion}
+              >
+                <option value="">Select Distributor</option>
+                {distributors.map(d => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
+              </select>
+            </div>
 
-        {/* Store - Now using react-select */}
-        <div className={`${selectedDistributor ? '' : 'opacity-50 pointer-events-none'}`}>
-          <label className="block text-sm font-medium mb-1">Store</label>
-          <Select
-            options={filteredStores}
-            value={selectedStore}
-            onChange={handleStoreChange}
-            placeholder="Select Store"
-            isSearchable
-            className="react-select-container"
-            classNamePrefix="react-select"
-            isDisabled={!selectedDistributor}
-          />
-        </div>
-      </div>
+            <div className={`${selectedDistributor ? '' : 'opacity-50 pointer-events-none'}`}>
+              <label className="block text-sm font-medium mb-1">Store</label>
+              <Select
+                options={filteredStores}
+                value={selectedStore}
+                onChange={handleStoreChange}
+                placeholder="Select Store"
+                isSearchable
+                classNamePrefix="react-select"
+                isDisabled={!selectedDistributor}
+              />
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Map */}
       {selectedStore && position && (
-        <div className="w-full h-64 rounded-lg overflow-hidden shadow mt-4">
-          <LoadScript googleMapsApiKey={GOOGLE_MAPS_API_KEY}>
-            <GoogleMap
-              center={position}
-              zoom={17}
-              mapContainerStyle={{ width: '100%', height: '100%' }}
-              onClick={(e) => {
-                const newPos = {
-                  lat: e.latLng.lat(),
-                  lng: e.latLng.lng()
-                };
-                setPosition(newPos);
-                reverseGeocode(newPos.lat, newPos.lng).then(setAddressInfo);
-              }}
-            >
-              <Marker
-                key={`${position.lat}-${position.lng}`}
-                position={position}
-                draggable
-                onDragEnd={(e) => {
+        <>
+          <div className={`rounded-lg overflow-hidden shadow ${isMapFullscreen ? 'fixed inset-0 z-50' : 'h-64 mt-4'}`}>
+            <LoadScript googleMapsApiKey={GOOGLE_MAPS_API_KEY}>
+              <GoogleMap
+                center={position}
+                zoom={17}
+                mapContainerStyle={{ width: '100%', height: '100%' }}
+                onClick={(e) => {
                   const newPos = {
                     lat: e.latLng.lat(),
                     lng: e.latLng.lng()
@@ -331,14 +309,56 @@ const LocationButton = () => {
                   setPosition(newPos);
                   reverseGeocode(newPos.lat, newPos.lng).then(setAddressInfo);
                 }}
-              />
-            </GoogleMap>
-          </LoadScript>
-        </div>
+                options={{
+                  fullscreenControl: false,
+                  mapTypeControl: false,
+                  streetViewControl: false,
+                  zoomControl: false,
+                  keyboardShortcuts: false,
+                  disableDefaultUI: true,
+                }}
+              >
+                <Marker
+                  key={`${position.lat}-${position.lng}`}
+                  position={position}
+                  draggable
+                  onDragEnd={(e) => {
+                    const newPos = {
+                      lat: e.latLng.lat(),
+                      lng: e.latLng.lng()
+                    };
+                    setPosition(newPos);
+                    reverseGeocode(newPos.lat, newPos.lng).then(setAddressInfo);
+                  }}
+                />
+              </GoogleMap>
+            </LoadScript>
+
+            {/* Close map button in fullscreen */}
+            {isMapFullscreen && (
+              <button
+                onClick={() => setIsMapFullscreen(false)}
+                className="absolute top-4 left-8 z-50 flex items-center gap-2 bg-white text-red-600 border border-gray-300 shadow-lg px-4 py-2 rounded-full font-bold text-sm hover:bg-gray-100 hover:scale-105 transition-all duration-200"
+              >
+                <span className="text-lg">←</span> Close Map
+              </button>
+            )}
+          </div>
+
+          {/* View full map button (when not in fullscreen) */}
+          {!isMapFullscreen && (
+            <button
+              onClick={() => setIsMapFullscreen(true)}
+              className="mt-4 w-full py-3 px-4 bg-blue-600 text-white font-semibold text-center rounded-2xl shadow-lg transition-all duration-200 transform hover:scale-105 hover:bg-blue-700 active:scale-100 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2"
+            >
+              📍 View Full Map
+            </button>
+          )}
+        </>
       )}
 
-      {/* Address Preview */}
-      {addressInfo && (
+      {/* Address Info */}
+      {!isMapFullscreen && addressInfo && (
         <div className="bg-gray-50 p-3 rounded text-sm shadow">
           <p><strong>Address:</strong> {addressInfo.address}</p>
           <p><strong>Subdistrict:</strong> {addressInfo.subdistrict}</p>
@@ -350,19 +370,25 @@ const LocationButton = () => {
       )}
 
       {/* Send Button */}
-      <button
-        onClick={sendLocation}
-        disabled={!selectedStore || !position || !addressInfo || isLoading}
-        className={`w-full p-3 rounded font-semibold transition ${
-          selectedStore && position && addressInfo && !isLoading
-            ? 'bg-blue-600 text-white hover:bg-blue-700'
-            : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-        }`}
-      >
-        {isLoading ? 'Loading...' : 'Send Location'}
-      </button>
+      {!isMapFullscreen && (
+        <button
+          onClick={sendLocation}
+          disabled={
+            !selectedStore || !position || !addressInfo || isLoading || locationSent
+          }
+          className={`w-full mt-4 py-3 px-4 rounded-2xl font-semibold transition-all duration-200 transform focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+            locationSent
+              ? 'bg-green-700 text-white cursor-default'
+              : selectedStore && position && addressInfo && !isLoading
+              ? 'bg-green-600 text-white hover:bg-green-700 hover:scale-105 focus:ring-green-400'
+              : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+          }`}
+        >
+          {locationSent ? '✅ Location Sent!' : isLoading ? 'Loading...' : '📨 Send Location'}
+        </button>
+      )}
     </div>
   );
 };
 
-export default LocationButton;  
+export default LocationButton;
